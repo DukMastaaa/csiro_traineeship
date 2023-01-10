@@ -1,0 +1,7 @@
+<launch>
+    <include file="$(find panda_moveit_config)/launch/demo_gazebo.launch" pass_all_args="true">
+        <arg name="x" value="-0.5" />
+        <!-- <arg name="world" value="$(find franka_gazebo)/world/stone.sdf" /> -->
+        <arg name="world" value="$(find traineeship)/world/camera_stone.sdf" />
+    </include>
+</launch>

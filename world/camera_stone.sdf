@@ -1,0 +1,73 @@
+<?xml version="1.0" ?>
+<sdf version="1.6">
+    <!-- This file contains code from https://gitioc.upc.edu/rostutorials/gazebo_sensors_tutorial/-/tree/master/ -->
+  <world name="camera_stone">
+    <!--A global light source-->
+    <include>
+      <uri>model://sun</uri>
+    </include>
+
+    <!--A ground plane-->
+    <include>
+      <uri>model://ground_plane</uri>
+    </include>
+
+    <!-- A Table
+    <include>
+      <uri>model://table</uri>
+      <pose>0.016428 0.000584 0.0 0 -0 0</pose>
+      <static>1</static>
+    </include> -->
+
+    <!--A pick tray-->
+    <include>
+      <uri>model://pick_tray</uri>
+      <pose>0.008578 -0.215704 0.419773 0 -0 -0</pose>
+      <static>1</static> <!--Hot Fix to prevent drifting see #206-->
+    </include>
+
+    <!--A place tray-->
+    <include>
+      <uri>model://place_tray</uri>
+      <pose>0.004103 0.219654 0.419764 0 -0 -0</pose>
+      <static>1</static> <!--Hot Fix to prevent drifting see #206-->
+    </include>
+
+    <!--A stone-->
+    <include>
+      <uri>model://stone</uri>
+      <pose>0.000286 -0.221972 0.475172 0 -0 -0</pose>
+    </include>
+
+    <!-- <gui>
+      <camera name="user_default">
+            <pose>0.556 -0.9132 0.8266 0 0.59 2.15</pose>
+      </camera>
+    </gui> -->
+
+    <!-- <include>
+      <uri>model://kinect_ros</uri>
+      <pose>0.5 0 0.45 0 0 3.1416</pose>
+      <static>1</static>
+    </include> -->
+
+    <model name="post">
+      <pose>1.0 0 0.45 0 0 3.1416</pose>
+      <static>true</static>
+      <link name="link_for_camera">
+        <sensor name="logical_camera" type="logical_camera">
+          <logical_camera>
+            <near>0.55</near>
+            <far>2.5</far>
+            <horizontal_fov>1.05</horizontal_fov>
+            <aspect_ratio>1.8</aspect_ratio>
+          </logical_camera>
+          <visualize>true</visualize>
+          <always_on>true</always_on>
+          <update_rate>10</update_rate>
+        </sensor>
+      </link>
+    </model>
+
+  </world>
+</sdf>
