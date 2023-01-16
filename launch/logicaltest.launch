@@ -1,0 +1,9 @@
+<launch>
+    <param
+        name="/logical_cam_gz_topic"
+        type="str"
+        value="~/post/link_for_camera/logical_camera/models"
+    />
+    <node name="logical_to_moveit" pkg="traineeship" type="logical_to_moveit" />
+    <include file="$(find traineeship)/launch/stones.launch" pass_all_args="true"/>
+</launch>

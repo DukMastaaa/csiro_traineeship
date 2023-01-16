@@ -25,8 +25,8 @@ include_directories(
   ${GAZEBO_INCLUDE_DIRS}
 )
 
-add_executable(beans src/logical_to_moveit.cpp)
-target_link_libraries(beans ${catkin_LIBRARIES} ${GAZEBO_LIBRARIES})
+add_executable(logical_to_moveit src/logical_to_moveit.cpp)
+target_link_libraries(logical_to_moveit ${catkin_LIBRARIES} ${GAZEBO_LIBRARIES})
 # add_dependencies(logical_to_moveit ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
 add_executable(gzlistener src/gzlistener.cpp)

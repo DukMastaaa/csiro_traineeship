@@ -43,83 +43,73 @@ private:
     // Gazebo subscriber to the logical camera.
     gazebo::transport::SubscriberPtr gazebo_sub;
 
+    // ROS publisher.
+    ros::Publisher ros_pub;
+
     // Model name of the target object.
     std::string target_name;
 
-    // Most recent pose from the logical camera sensor.
-    geometry_msgs::Pose recent_pose;
-
-    ros::Timer timer;
+    // ROS topic name to publish to.
+    std::string pub_topic;
 
 private:
     // Callback when Gazebo transport called.
-    void gazebo_callback(ConstLogicalCameraImagePtr& _msg);
-
-    // Callback for timer.
-    void timer_callback(const ros::TimerEvent& e);
+    void gazeboCallback(ConstLogicalCameraImagePtr& _msg);
 
 public:
     LogicalToMoveit(
             gazebo::transport::NodePtr gazebo_node_,
             ros::NodeHandle ros_node_,
-            const std::string& camera_model_name_,
-            const std::string& camera_link_name_,
-            const std::string& target_name_);
-    
-    geometry_msgs::Pose pose();
+            const std::string& subscribe_topic_,
+            const std::string& target_name_,
+            const std::string& pub_topic_);
 };
 
 
 LogicalToMoveit::LogicalToMoveit(
         gazebo::transport::NodePtr gazebo_node_,
         ros::NodeHandle ros_node_,
-        const std::string& camera_model_name_,
-        const std::string& camera_link_name_,
-        const std::string& target_name_)
-    : gazebo_node{gazebo_node_}, ros_node{ros_node_}, gazebo_sub{},
-    target_name{target_name_},
-    recent_pose{}, timer{}
+        const std::string& subscribe_topic,
+        const std::string& target_name_,
+        const std::string& pub_topic_)
+    : gazebo_node{gazebo_node_}, ros_node{ros_node_},
+    gazebo_sub{}, ros_pub{},
+    target_name{target_name_}, pub_topic{pub_topic_}
 {
-    const std::string subscribe_topic = "~/" + camera_model_name_
-            + "/" + camera_link_name_ + "/logical_camera/models";
     gazebo_sub = gazebo_node->Subscribe(subscribe_topic,
-            &LogicalToMoveit::gazebo_callback, this);
-    timer = ros_node.createTimer(
-            ros::Duration(0.5),
-            boost::bind(&LogicalToMoveit::timer_callback, this, _1));
+            &LogicalToMoveit::gazeboCallback, this);
+    ros_pub = ros_node.advertise<geometry_msgs::Pose>(pub_topic, 1, false);
 }
 
-void LogicalToMoveit::gazebo_callback(ConstLogicalCameraImagePtr& _msg) {
-    ROS_INFO_STREAM("received!\n");
-    auto cameraPose = gazebo::msgs::ConvertIgn(_msg->pose());
+void LogicalToMoveit::gazeboCallback(ConstLogicalCameraImagePtr& _msg) {
+    ROS_INFO_STREAM("received!\n");  
+    auto camera_pose = gazebo::msgs::ConvertIgn(_msg->pose());
     for (int i = 0; i < _msg->model_size(); i++) {
         auto model = _msg->model(i);
         ROS_INFO_STREAM(model.name() << "\n");
         if (model.name() == target_name) {
-            auto modelRelativePose = gazebo::msgs::ConvertIgn(model.pose());
-            auto modelWorldPose = modelRelativePose - cameraPose;
-            recent_pose = ignPoseToGeom(modelWorldPose);
+            auto model_relative_pose = gazebo::msgs::ConvertIgn(model.pose());
+            auto model_world_pose = model_relative_pose - camera_pose;
+            auto msg = ignPoseToGeom(model_world_pose);
+            ros_pub.publish(msg);
             return;
         }
     }
     ROS_WARN_STREAM("target not detected\n");
 }
 
-void LogicalToMoveit::timer_callback(const ros::TimerEvent& e) {
-    ROS_INFO_STREAM(recent_pose << "\n");
-}
-
-geometry_msgs::Pose LogicalToMoveit::pose() {
-    return recent_pose;
-}
-
 
 int main(int argc, char** argv) {
-    const std::string camera_model_name = "post";
-    const std::string camera_link_name = "link_for_camera";
+    // The name of the parameter in the ROS parameter server
+    // which contains the Gazebo topic broadcasting logical camera images.
+    const std::string gz_topic_param_name = "/logical_cam_gz_topic";
+
+    // Name of the Gazebo model that we're reporting the pose of.
     const std::string target_name = "stone";
 
-    // new is ew
+    // ROS topic that we publish the pose to.
+    const std::string pub_topic = "/logical_target_pose";
+
     gazebo::client::setup(argc, argv);
     gazebo::transport::NodePtr gazebo_node(new gazebo::transport::Node());
     gazebo_node->Init();
@@ -128,18 +118,22 @@ int main(int argc, char** argv) {
     ros::init(argc, argv, "logical_to_moveit");
     ros::NodeHandle ros_node;
     ROS_INFO_STREAM("ros node initialised\n");
-    
-    LogicalToMoveit converter{
-            gazebo_node, ros_node,
-            camera_model_name, camera_link_name, target_name};
 
-    while (true) {
-        gazebo::common::Time::MSleep(10);
-        ros::spinOnce();
+    int return_code = 0;
+
+    std::string subscribe_topic;
+    if (ros_node.getParam(gz_topic_param_name, subscribe_topic)) {
+        LogicalToMoveit converter{gazebo_node, ros_node, subscribe_topic, target_name, pub_topic};
+        while (true) {
+            gazebo::common::Time::MSleep(10);
+            ros::spinOnce();
+        }
+    } else {
+        ROS_ERROR_STREAM(gz_topic_param_name << " not found in parameter server!\n");
+        return_code = 1;
     }
 
     gazebo::shutdown();
-
     ROS_INFO_STREAM("shutting down\n");
+    return return_code;
 }
-
