@@ -2,6 +2,7 @@
 #include "ros/ros.h"
 #include "geometry_msgs/Pose.h"
 #include "tf/transform_datatypes.h"
+#include "tf/transform_broadcaster.h"
 
 // Gazebo
 #include "gazebo/gazebo.hh"
@@ -15,20 +16,12 @@
 #include <functional>
 #include <iostream>
 
-geometry_msgs::Pose ignPoseToGeom(ignition::math::v6::Pose3d ign_pose) {
-    auto geom_pose = geometry_msgs::Pose();
-    geom_pose.position.x = ign_pose.X();
-    geom_pose.position.y = ign_pose.Y();
-    geom_pose.position.z= ign_pose.Z();
-    
-    auto q = tf::createQuaternionFromRPY(
-            ign_pose.Roll(), ign_pose.Pitch(), ign_pose.Yaw());
-    geom_pose.orientation.w = q.w();
-    geom_pose.orientation.x = q.x();
-    geom_pose.orientation.y = q.y();
-    geom_pose.orientation.z = q.z();
-
-    return geom_pose;
+tf::Transform gzPoseToTransform(gazebo::msgs::Pose gz_pose) {
+    auto gz_q = gz_pose.orientation();
+    auto gz_p = gz_pose.position();
+    return tf::Transform{
+            tf::Quaternion{gz_q.x(), gz_q.y(), gz_q.z(), gz_q.w()},
+            tf::Vector3{gz_p.x(), gz_p.y(), gz_p.z()}};
 }
 
 
@@ -43,14 +36,11 @@ private:
     // Gazebo subscriber to the logical camera.
     gazebo::transport::SubscriberPtr gazebo_sub;
 
-    // ROS publisher.
-    ros::Publisher ros_pub;
+    // Broadcaster for tf tree.
+    tf::TransformBroadcaster broadcaster;
 
     // Model name of the target object.
     std::string target_name;
-
-    // ROS topic name to publish to.
-    std::string pub_topic;
 
 private:
     // Callback when Gazebo transport called.
@@ -61,8 +51,7 @@ public:
             gazebo::transport::NodePtr gazebo_node_,
             ros::NodeHandle ros_node_,
             const std::string& subscribe_topic_,
-            const std::string& target_name_,
-            const std::string& pub_topic_);
+            const std::string& target_name_);
 };
 
 
@@ -70,28 +59,27 @@ LogicalToMoveit::LogicalToMoveit(
         gazebo::transport::NodePtr gazebo_node_,
         ros::NodeHandle ros_node_,
         const std::string& subscribe_topic,
-        const std::string& target_name_,
-        const std::string& pub_topic_)
+        const std::string& target_name_)
     : gazebo_node{gazebo_node_}, ros_node{ros_node_},
-    gazebo_sub{}, ros_pub{},
-    target_name{target_name_}, pub_topic{pub_topic_}
+    gazebo_sub{}, broadcaster{}, target_name{target_name_}
 {
     gazebo_sub = gazebo_node->Subscribe(subscribe_topic,
             &LogicalToMoveit::gazeboCallback, this);
-    ros_pub = ros_node.advertise<geometry_msgs::Pose>(pub_topic, 1, false);
 }
 
 void LogicalToMoveit::gazeboCallback(ConstLogicalCameraImagePtr& _msg) {
     ROS_INFO_STREAM("received!\n");  
-    auto camera_pose = gazebo::msgs::ConvertIgn(_msg->pose());
+    auto now = ros::Time::now();
+    auto camera_transform = gzPoseToTransform(_msg->pose());
+    broadcaster.sendTransform(tf::StampedTransform(camera_transform, now, "world", "camera"));
+
     for (int i = 0; i < _msg->model_size(); i++) {
         auto model = _msg->model(i);
         ROS_INFO_STREAM(model.name() << "\n");
         if (model.name() == target_name) {
-            auto model_relative_pose = gazebo::msgs::ConvertIgn(model.pose());
-            auto model_world_pose = model_relative_pose - camera_pose;
-            auto msg = ignPoseToGeom(model_world_pose);
-            ros_pub.publish(msg);
+            auto model_relative_transform = gzPoseToTransform(model.pose());
+            broadcaster.sendTransform(tf::StampedTransform(
+                    model_relative_transform, now, "camera", target_name));
             return;
         }
     }
@@ -107,9 +95,6 @@ int main(int argc, char** argv) {
     // Name of the Gazebo model that we're reporting the pose of.
     const std::string target_name = "stone";
 
-    // ROS topic that we publish the pose to.
-    const std::string pub_topic = "/logical_target_pose";
-
     gazebo::client::setup(argc, argv);
     gazebo::transport::NodePtr gazebo_node(new gazebo::transport::Node());
     gazebo_node->Init();
@@ -123,7 +108,7 @@ int main(int argc, char** argv) {
 
     std::string subscribe_topic;
     if (ros_node.getParam(gz_topic_param_name, subscribe_topic)) {
-        LogicalToMoveit converter{gazebo_node, ros_node, subscribe_topic, target_name, pub_topic};
+        LogicalToMoveit converter{gazebo_node, ros_node, subscribe_topic, target_name};
         while (true) {
             gazebo::common::Time::MSleep(10);
             ros::spinOnce();

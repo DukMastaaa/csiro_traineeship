@@ -5,6 +5,13 @@ find_package(catkin REQUIRED COMPONENTS
   roscpp
   std_msgs
   gazebo_ros
+  # interactive_markers
+  moveit_core
+  moveit_ros_planning
+  moveit_ros_planning_interface
+  moveit_ros_perception
+  rviz_visual_tools
+  moveit_visual_tools
 )
 
 find_package(gazebo REQUIRED)
@@ -31,3 +38,6 @@ target_link_libraries(logical_to_moveit ${catkin_LIBRARIES} ${GAZEBO_LIBRARIES})
 
 add_executable(gzlistener src/gzlistener.cpp)
 target_link_libraries(gzlistener ${catkin_LIBRARIES} ${GAZEBO_LIBRARIES})
+
+add_executable(stone_mover src/stone_mover.cpp)
+target_link_libraries(stone_mover ${catkin_LIBRARIES} ${GAZEBO_LIBRARIES})
