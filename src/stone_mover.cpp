@@ -8,17 +8,10 @@
 // MoveIt
 #include <moveit/move_group_interface/move_group_interface.h>
 #include <moveit/planning_scene_interface/planning_scene_interface.h>
-
-
 #include <moveit_msgs/DisplayRobotState.h>
-
 #include <moveit_msgs/DisplayTrajectory.h>
-
-
 #include <moveit_msgs/AttachedCollisionObject.h>
-
 #include <moveit_msgs/CollisionObject.h>
-
 #include <moveit_visual_tools/moveit_visual_tools.h>
 
 // STL
@@ -27,6 +20,8 @@
 #include <thread>
 
 namespace rvt = rviz_visual_tools;
+
+constexpr const double tau = 2 * M_PI;
 
 
 // This class wraps a CollisionObject to encapsulate away
@@ -138,6 +133,14 @@ public:
             moveit::planning_interface::PlanningSceneInterface& planning_scene_interface_,
             moveit_visual_tools::MoveItVisualTools& visual_tools_);
     
+    // Acquires the mutex and stores that the object is not attached.
+    // This stops the target's position from being updated.
+    void clear_object_attached();
+
+    // Acquires the mutex and stores that the object is attached.
+    // This starts the updates of the target's position.
+    void set_object_attached();
+    
 };
 
 const std::string StoneMover::TARGET_ID = "stone";
@@ -160,8 +163,6 @@ StoneMover::StoneMover(
     cameraUpdateTimer{},
     object_attached{false}, object_attached_mutex{}
 {
-    // const uint32_t queue_size = 1;  // We don't care about old measurements
-    // pose_sub = ros_node.subscribe(sub_topic_, queue_size, &StoneMover::poseCallback, this);
     cameraUpdateTimer = ros_node.createTimer(ros::Duration(0.1), &StoneMover::poseCallback, this);
 }
 
@@ -186,6 +187,146 @@ void StoneMover::poseCallback(const ros::TimerEvent& event) {
 }
 
 
+void StoneMover::clear_object_attached() {
+    std::lock_guard<std::mutex> lock_guard(object_attached_mutex);
+    object_attached = false;
+}
+
+
+void StoneMover::set_object_attached() {
+    std::lock_guard<std::mutex> lock_guard(object_attached_mutex);
+    object_attached = true;
+}
+
+
+
+
+void make_tables(moveit::planning_interface::PlanningSceneInterface& planning_scene_interface) {
+    tf::TransformListener transform_listener;
+    transform_listener.waitForTransform("world", "panda_link0", ros::Time(0), ros::Duration(4.0));
+
+    std::vector<moveit_msgs::CollisionObject> collision_objects;
+    collision_objects.resize(2);
+
+    // Add the first table where the cube will originally be kept.
+    moveit_msgs::CollisionObject& table1 = collision_objects[0];
+    table1.id = "table1";
+    table1.header.frame_id = "world";
+
+    /* Define the primitive and its dimensions. */
+    table1.primitives.resize(1);
+    table1.primitives[0].type = table1.primitives[0].BOX;
+    table1.primitives[0].dimensions.resize(3);
+    table1.primitives[0].dimensions[0] = 0.235035;
+    table1.primitives[0].dimensions[1] = 0.144926;
+    table1.primitives[0].dimensions[2] = 0.023348;
+
+    /* Define the pose of the table. */
+    geometry_msgs::PoseStamped pose1;
+    pose1.header.stamp = ros::Time(0);
+    pose1.header.frame_id = "panda_link0";
+    pose1.pose.position.x = 0.008578;
+    pose1.pose.position.y = -0.215704;
+    pose1.pose.position.z = 0.419773;
+    pose1.pose.orientation.w = 1.0;
+    geometry_msgs::PoseStamped pose1Relative;
+    // transform_listener.transformPose("world", pose1, pose1Relative);
+    pose1Relative = pose1;
+
+    table1.primitive_poses.resize(1);
+    table1.primitive_poses[0].position = pose1Relative.pose.position;
+    table1.primitive_poses[0].orientation = pose1Relative.pose.orientation;
+    table1.operation = table1.ADD;
+
+    // Add the second table where we will be placing the cube.
+    moveit_msgs::CollisionObject& table2 = collision_objects[1];
+    table2.id = "table2";
+    table2.header.frame_id = "world";
+
+    /* Define the primitive and its dimensions. */
+    table2.primitives.resize(1);
+    table2.primitives[0].type = table2.primitives[0].BOX;
+    table2.primitives[0].dimensions.resize(3);
+    table2.primitives[0].dimensions[0] = 0.235035;
+    table2.primitives[0].dimensions[1] = 0.144926;
+    table2.primitives[0].dimensions[2] = 0.023348;
+
+    /* Define the pose of the table. */
+    geometry_msgs::PoseStamped pose2;
+    pose2.header.stamp = ros::Time(0);
+    pose2.header.frame_id = "panda_link0";
+    pose2.pose.position.x = 0.004103;
+    pose2.pose.position.y = 0.219654;
+    pose2.pose.position.z = 0.419764;
+    pose2.pose.orientation.w = 1.0;
+    geometry_msgs::PoseStamped pose2Relative;
+    // transform_listener.transformPose("world", pose2, pose2Relative);
+    pose2Relative = pose2;
+
+    table2.primitive_poses.resize(1);
+    table2.primitive_poses[0].position = pose2Relative.pose.position;
+    table2.primitive_poses[0].orientation = pose2Relative.pose.orientation;
+    table2.operation = table2.ADD;
+
+    planning_scene_interface.applyCollisionObjects(collision_objects);
+}
+
+void openGripper(trajectory_msgs::JointTrajectory& posture) {
+    posture.joint_names.resize(2);
+    posture.joint_names[0] = "panda_finger_joint1";
+    posture.joint_names[1] = "panda_finger_joint2";
+
+    posture.points.resize(1);
+    posture.points[0].positions.resize(2);
+    posture.points[0].positions[0] = 0.04;
+    posture.points[0].positions[1] = 0.04;
+    posture.points[0].time_from_start = ros::Duration(0.5);
+}
+
+void closedGripper(trajectory_msgs::JointTrajectory& posture) {
+    posture.joint_names.resize(2);
+    posture.joint_names[0] = "panda_finger_joint1";
+    posture.joint_names[1] = "panda_finger_joint2";
+
+    posture.points.resize(1);
+    posture.points[0].positions.resize(2);
+    posture.points[0].positions[0] = 0.00;
+    posture.points[0].positions[1] = 0.00;
+    posture.points[0].time_from_start = ros::Duration(0.5);
+}
+
+void pick(moveit::planning_interface::MoveGroupInterface& move_group) {
+    std::vector<moveit_msgs::Grasp> grasps;
+    grasps.resize(1);
+
+    grasps[0].grasp_pose.header.frame_id = "panda_link0";
+    tf::quaternionTFToMsg(
+            tf::createQuaternionFromRPY(-tau / 4, -tau / 8, -tau / 4),
+            grasps[0].grasp_pose.pose.orientation);
+    grasps[0].grasp_pose.pose.position.x = 0.415;
+    grasps[0].grasp_pose.pose.position.y = 0;
+    grasps[0].grasp_pose.pose.position.z = 0.5;
+
+    grasps[0].pre_grasp_approach.direction.header.frame_id = "panda_link0";
+    grasps[0].pre_grasp_approach.direction.vector.x = 1.0;
+    grasps[0].pre_grasp_approach.min_distance = 0.095;
+    grasps[0].pre_grasp_approach.desired_distance = 0.115;
+
+    grasps[0].post_grasp_retreat.direction.header.frame_id = "panda_link0";
+    grasps[0].post_grasp_retreat.direction.vector.z = 1.0;
+    grasps[0].post_grasp_retreat.min_distance = 0.1;
+    grasps[0].post_grasp_retreat.desired_distance = 0.25;
+
+    openGripper(grasps[0].pre_grasp_posture);
+
+    closedGripper(grasps[0].grasp_posture);
+
+    move_group.setSupportSurfaceName("table1");
+    move_group.pick("object", grasps);
+}
+
+
+
 int main(int argc, char** argv) {
     ros::init(argc, argv, "stone_mover");
     ros::NodeHandle nh;
@@ -205,9 +346,13 @@ int main(int argc, char** argv) {
     // Batch publishing is used to reduce the number of messages being sent to RViz for large visualizations
     visual_tools.trigger();
 
-    // visual_tools.prompt("Press 'next' in the RvizVisualToolsGui window to start the demo");
-
     StoneMover stone_mover{nh, move_group_interface, planning_scene_interface, visual_tools};
+
+    ros::Duration(1).sleep();
+
+    make_tables(planning_scene_interface);
+
+    // visual_tools.prompt("Press 'next' in the RvizVisualToolsGui window to start the demo");
 
     ros::waitForShutdown();
 }
